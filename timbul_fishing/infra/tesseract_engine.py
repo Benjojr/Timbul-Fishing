@@ -28,7 +28,8 @@ class TesseractOcrEngine:
             return pytesseract.image_to_string(image, lang=self._lang)
         except pytesseract.TesseractNotFoundError as exc:
             raise OcrError(
-                "Tesseract tidak ditemukan. Pastikan folder 'tesseract' ada di samping aplikasi."
+                "Tesseract tidak ditemukan. Bangun ulang exe dengan vendor\\tesseract terisi, "
+                "atau pasang Tesseract di komputer ini."
             ) from exc
         except pytesseract.TesseractError as exc:
             raise OcrError(f"OCR gagal: {exc}") from exc

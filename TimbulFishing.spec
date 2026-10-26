@@ -1,12 +1,15 @@
 # PyInstaller: satu-satunya spec. Build lewat scripts/build.ps1.
+# Hasil: SATU berkas dist/TimbulFishing.exe (isinya diekstrak ke folder sementara saat dijalankan).
+import sys
 from pathlib import Path
 
 ROOT = Path(SPECPATH)
-tesseract = ROOT / "vendor" / "tesseract"
+sys.path.insert(0, str(ROOT / "scripts"))
+from tesseract_bundle import select_bundle  # noqa: E402
 
 datas = [(str(ROOT / "timbul_fishing" / "web" / "static"), "timbul_fishing/web/static")]
-if tesseract.exists():
-    datas.append((str(tesseract), "tesseract"))   # Tesseract portabel ikut dibundel
+# Dari vendor/tesseract hanya berkas yang dipakai (exe + DLL yang diimpor + tessdata bahasa OCR).
+datas += select_bundle(ROOT / "vendor" / "tesseract", dest="tesseract")
 
 a = Analysis(
     ["timbul_fishing/__main__.py"],
@@ -16,5 +19,4 @@ a = Analysis(
     excludes=["tkinter", "numpy", "pandas", "matplotlib", "scipy", "cv2"],
 )
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="TimbulFishing", console=False)
-coll = COLLECT(exe, a.binaries, a.datas, name="TimbulFishing")
+exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name="TimbulFishing", console=False, upx=False)

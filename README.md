@@ -20,8 +20,8 @@ timbul-fishing/
 │   ├── web/            # API Flask + static/ (index.html, app.css, app.js, loading.html)
 │   └── shell/          # jendela pywebview, server lokal, dialog
 ├── tests/
-├── scripts/            # build.ps1, debug_ocr.py
-├── vendor/tesseract/   # Tesseract portabel (isi manual)
+├── scripts/            # build.ps1, tesseract_bundle.py, debug_ocr.py
+├── vendor/tesseract/   # Tesseract portabel (isi manual; yang dibundel hanya yang dipakai)
 └── TimbulFishing.spec  # satu-satunya konfigurasi PyInstaller
 ```
 
@@ -34,8 +34,8 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements-dev.txt
 ```
-Tesseract portabel: salin `tesseract.exe`, semua `*.dll`, dan `tessdata\eng.traineddata`
-dari `C:\Program Files\Tesseract-OCR\` ke `vendor\tesseract\`.
+Tesseract portabel: salin isi `C:\Program Files\Tesseract-OCR\` ke `vendor\tesseract\`
+(boleh semuanya; saat build hanya berkas yang dipakai yang dibundel).
 
 ## Pengembangan
 ```
@@ -57,8 +57,19 @@ python scripts/debug_ocr.py gambar.png  # teks mentah OCR, untuk menyetel parser
 ```
 .\scripts\build.ps1
 ```
-Hasil: `dist\TimbulFishing\TimbulFishing.exe`. Bagikan seluruh folder.
+Hasil: satu berkas `dist\TimbulFishing.exe`; cukup bagikan berkas itu saja.
 Perlu Microsoft Edge WebView2 Runtime (sudah ada di Windows 10/11 terbaru).
+
+Isi exe: kode aplikasi + library Python yang di-import (PyInstaller menelusurinya otomatis) +
+berkas Tesseract yang dipakai saja. `scripts\tesseract_bundle.py` memilihnya: `tesseract.exe`,
+DLL yang diimpornya (dibaca dari tabel impor PE), dan `tessdata\<bahasa>.traineddata` untuk
+bahasa yang dipakai `TesseractOcrEngine`. Sisanya (doc, configs, osd, DLL tak terpakai) dilewati;
+bila semuanya terpakai, seluruh folder dibundel. Lihat ringkasannya dengan
+`python scripts\tesseract_bundle.py --verify` (build.ps1 menjalankannya otomatis).
+Darurat: `$env:TF_VENDOR_ALL = "1"` membundel seluruh folder vendor tanpa seleksi.
+
+Catatan exe satu berkas: tiap dibuka, isinya diekstrak ke folder sementara, jadi pembukaan
+pertama terasa sedikit lebih lambat daripada mode folder. Data pengguna tetap di `%APPDATA%`.
 
 ## Data
 `%APPDATA%\TimbulFishing\` (rekap.tfdata, backup, log). Data dari folder lama

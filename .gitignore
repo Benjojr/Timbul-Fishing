@@ -1,46 +1,8 @@
-# --- Python ---
-__pycache__/
-*.py[cod]
 .venv/
-venv/
-env/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-*.egg-info/
-
-# --- Build (PyInstaller + Inno Setup) ---
+__pycache__/
+*.pyc
 build/
 dist/
-*.spec
-splash.png
-installer/Output/
-installer/MicrosoftEdgeWebview2Setup.exe
-installer/MicrosoftEdgeWebView2RuntimeInstaller*.exe
-
-# --- Tesseract (biner besar; unduh/salin manual ke vendor/tesseract, lihat README) ---
-vendor/tesseract/
-
-# --- Data & log (data asli ada di %APPDATA%, ini hanya jaga-jaga) ---
-*.tfdata
-backups/
 *.log
-*.lock
-
-# --- Contoh bukti transfer untuk uji coba: berisi data keuangan asli, JANGAN di-push ---
-folder_bukti/
-bukti_uji/
-sampel/
-samples/
-
-# --- Rahasia ---
-.env
-*.pem
-*.key
-
-# --- Editor / OS ---
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-desktop.ini
+.pytest_cache/
+vendor/tesseract/

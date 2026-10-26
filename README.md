@@ -1,27 +1,65 @@
-# BuktiTF — Rekap harian & verifikasi transfer (UI web)
+# Timbul Fishing
 
-Aplikasi desktop (jendela sendiri). Tampilannya ditulis dengan HTML/CSS/JS dan dirender oleh
-pywebview (Windows: Microsoft Edge WebView2, sudah ada di Windows 10/11 terbaru).
+Aplikasi desktop (Windows) untuk rekap harian pemancingan dan verifikasi transfer:
+membaca gambar bukti transfer m-BCA (OCR), menghitung sisa harian, mencocokkannya dengan
+transfer, dan mengekspor rekap bulanan (Excel / PDF).
 
-```
-pip install -r requirements.txt
-python main.py                 # jendela aplikasi
-python main.py --browser       # buka di browser biasa
-python main.py --lan           # izinkan HP/PC lain di Wi-Fi yang sama (TANPA kata sandi)
-python main.py --no-window     # hanya server
-```
-
-Tesseract dicari di folder `tesseract/` samping aplikasi, lalu PATH, lalu lokasi default Windows.
-Data tetap di `%APPDATA%\ScannerBuktiTF\rekap.tfdata` (sama seperti versi desktop).
-
-Pintasan: `Ctrl+V` tempel gambar bukti · `Ctrl+S` simpan · `Enter` pindah ke isian berikutnya
-(Enter di nominal pengeluaran terakhir menambah baris baru).
+Python + Flask + pywebview (Edge WebView2) + Tesseract OCR + SQLite.
 
 ## Struktur
-- `bukti_tf/core`, `domain`, `infra` — tidak berubah dari versi desktop.
-- `bukti_tf/web/app.py` — API Flask (stateless); `codec.py` JSON↔domain; `presenter.py` teks & warna status.
-- `bukti_tf/web/static/` — `index.html`, `app.css`, `app.js` (tanpa library/CDN, jalan offline).
 
-## Build exe (PyInstaller)
-Folder `static` harus ikut dibundel:
-`pyinstaller --onefile --noconsole --add-data "bukti_tf/web/static;bukti_tf/web/static" --add-data "tesseract;tesseract" main.py`
+```
+timbul-fishing/
+├── timbul_fishing/
+│   ├── __main__.py     # titik masuk (CLI)
+│   ├── bootstrap.py    # composition root: merakit semua bagian
+│   ├── config.py       # lokasi Tesseract dan folder data
+│   ├── domain/         # data murni (Receipt, DailyReport, ...)
+│   ├── core/           # logika & kontrak (tanpa Pillow/Tesseract/Flask/SQLite)
+│   ├── infra/          # OCR, parser BCA, SQLite, exporter, backup
+│   ├── web/            # API Flask + static/ (index.html, app.css, app.js, loading.html)
+│   └── shell/          # jendela pywebview, server lokal, dialog
+├── tests/
+├── scripts/            # build.ps1, debug_ocr.py
+├── vendor/tesseract/   # Tesseract portabel (isi manual)
+└── TimbulFishing.spec  # satu-satunya konfigurasi PyInstaller
+```
+
+Aturan ketergantungan: `infra`, `web`, `shell` boleh mengenal `core` dan `domain`;
+`core` tidak boleh mengimpor Pillow, Tesseract, Flask, atau SQLite.
+
+## Persiapan
+```
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements-dev.txt
+```
+Tesseract portabel: salin `tesseract.exe`, semua `*.dll`, dan `tessdata\eng.traineddata`
+dari `C:\Program Files\Tesseract-OCR\` ke `vendor\tesseract\`.
+
+## Pengembangan
+```
+python -m timbul_fishing --browser      # cepat: buka di browser, tanpa jendela
+python -m timbul_fishing                # jendela aplikasi
+python -m unittest discover -s tests -t .
+python scripts/debug_ocr.py gambar.png  # teks mentah OCR, untuk menyetel parser
+```
+
+| Yang ingin diubah | Sentuh |
+|---|---|
+| Regex bukti BCA | `infra/bca_parser.py` |
+| Bank lain | parser baru di `infra/`, daftarkan di `bootstrap.py` |
+| Rumus rekap | `core/report_calculator.py` |
+| Tampilan | `web/static/` |
+| Format ekspor | exporter baru di `infra/`, rakit di `bootstrap.py` |
+
+## Build exe
+```
+.\scripts\build.ps1
+```
+Hasil: `dist\TimbulFishing\TimbulFishing.exe`. Bagikan seluruh folder.
+Perlu Microsoft Edge WebView2 Runtime (sudah ada di Windows 10/11 terbaru).
+
+## Data
+`%APPDATA%\TimbulFishing\` (rekap.tfdata, backup, log). Data dari folder lama
+`ScannerBuktiTF` disalin otomatis saat pertama dibuka; folder lama tidak dihapus.

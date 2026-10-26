@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><title>Timbul Fishing</title>
+<style>
+  :root{--bg:#0E161D;--text:#E6EEF2;--muted:#8FA3AE;--primary:#2DD4BF;--track:#ffffff1a}
+  @media (prefers-color-scheme: light){
+    :root{--bg:#EDF2F2;--text:#16212B;--muted:#5B6F7A;--primary:#0F766E;--track:#0000001a}}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--text);font:15px "Segoe UI",system-ui,sans-serif;
+       display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
+  .ring{width:52px;height:52px;border:5px solid var(--track);border-top-color:var(--primary);
+        border-radius:50%;animation:r .9s linear infinite}
+  h1{margin:0;font-size:22px;font-weight:600;letter-spacing:.3px}
+  p{margin:0;color:var(--muted)}
+  @keyframes r{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){.ring{animation-duration:3s}}
+</style></head>
+<body><div class="ring"></div><h1>Timbul Fishing</h1><p>Menyiapkan aplikasi…</p></body></html>

@@ -1,6 +1,6 @@
-Flask>=3.0
-Pillow
+flask
+pillow
 pytesseract
+xlsxwriter
 reportlab
-openpyxl
 pywebview

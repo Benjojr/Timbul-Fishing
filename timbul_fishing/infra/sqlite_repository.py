@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS expense_item (
 CREATE TABLE IF NOT EXISTS settlement (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     fingerprint TEXT UNIQUE,                 -- NULL jika waktu/nominal tidak terbaca
-    status TEXT, waktu TEXT, ke TEXT, nama TEXT, nominal INTEGER
+    status TEXT, waktu TEXT, ke TEXT, nama TEXT, nominal INTEGER,
+    image       TEXT                         -- nama berkas gambar bukti (relatif), boleh NULL
+
 );
 CREATE TABLE IF NOT EXISTS settlement_day (
     tanggal       TEXT PRIMARY KEY,          -- satu hari hanya punya satu bukti
@@ -66,6 +68,7 @@ class SqliteDailyRecordRepository:
             con.executescript(_SCHEMA)
             self._migrate_legacy_receipts(con)
             self._migrate_catatan(con)
+            self._migrate_image(con)
 
     def _connect(self) -> sqlite3.Connection:
         con = sqlite3.connect(self._path)
@@ -87,6 +90,14 @@ class SqliteDailyRecordRepository:
         cols = {r["name"] for r in con.execute("PRAGMA table_info(daily_record)")}
         if "catatan" not in cols:
             con.execute("ALTER TABLE daily_record ADD COLUMN catatan TEXT NOT NULL DEFAULT ''")
+
+    @staticmethod
+    def _migrate_image(con: sqlite3.Connection) -> None:
+        """Database lama belum punya kolom image di tabel settlement."""
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(settlement)")}
+        if "image" not in cols:
+            con.execute("ALTER TABLE settlement ADD COLUMN image TEXT")
+
 
     # ---------- migrasi bukti lama (satu bukti per hari) ----------
     def _migrate_legacy_receipts(self, con: sqlite3.Connection) -> None:
@@ -142,7 +153,7 @@ class SqliteDailyRecordRepository:
         """
         Hubungkan satu bukti ke satu atau beberapa hari (semua hari harus sudah tersimpan).
 
-        - Bukti yang sama (waktu+rekening+nominal) yang sudah dipakai untuk hari LAIN ditolak.
+        - Bukti yang sama (wakturekeningnominal) yang sudah dipakai untuk hari LAIN ditolak.
         - Hari yang sudah punya bukti lain ditolak, kecuali replace=True (bukti lama dilepas).
         """
         keys = sorted({_fmt(d) for d in days})
@@ -189,6 +200,20 @@ class SqliteDailyRecordRepository:
         """Lepas bukti dari satu hari (hari lain dalam gabungan tetap terhubung)."""
         with closing(self._connect()) as con, con:
             self._unlink(con, _fmt(tanggal))
+
+    def set_receipt_image(self, tanggal: date, image: Optional[str]) -> None:
+        """Catat berkas gambar pada bukti yang menaungi hari ini (semua hari gabungan ikut)."""
+        with closing(self._connect()) as con, con:
+            con.execute(
+                "UPDATE settlement SET image = ? WHERE id = "
+                "(SELECT settlement_id FROM settlement_day WHERE tanggal = ?)",
+                (image, _fmt(tanggal)))
+
+    def image_in_use(self, image: str) -> bool:
+        with closing(self._connect()) as con:
+            return con.execute("SELECT 1 FROM settlement WHERE image = ?",
+                               (image,)).fetchone() is not None
+
 
     @staticmethod
     def _upsert_settlement(con: sqlite3.Connection, r: TransferReceipt) -> int:
@@ -295,4 +320,4 @@ class SqliteDailyRecordRepository:
             nama=link["nama"] or "-", nominal=link["nominal"],
         )
         cover = tuple(date.fromisoformat(u) for u in self._days_of(con, link["id"]))
-        return DailyRecord(data=data, receipt=receipt, cover=cover)
+        return DailyRecord(data=data, receipt=receipt, cover=cover, image=link["image"])

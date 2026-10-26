@@ -5,6 +5,7 @@ Lapisan core hanya bergantung pada kontrak ini -> DIP.
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 from typing import Any, List, Optional, Protocol, Sequence, Tuple
 
 from timbul_fishing.domain.daily_record import DailyRecord
@@ -68,3 +69,27 @@ class DailyRecordRepository(Protocol):
 
     def unlink_receipt(self, tanggal: date) -> None:
         """Lepas bukti dari satu hari."""
+
+
+    def set_receipt_image(self, tanggal: date, image: Optional[str]) -> None:
+        """Catat nama berkas gambar pada bukti yang menaungi hari ini."""
+
+    def image_in_use(self, image: str) -> bool:
+        """True jika masih ada bukti yang memakai berkas gambar ini."""
+
+
+class ReceiptImageStore(Protocol):
+    def stage(self, data: bytes) -> str:
+        """Simpan sementara gambar bukti yang baru dibaca; kembalikan token."""
+
+    def commit(self, token: str, tanggal: date) -> str:
+        """Pindahkan gambar sementara ke folder bukti; kembalikan nama berkas (relatif)."""
+
+    def discard(self, token: str) -> None:
+        """Buang gambar sementara yang tidak jadi dipakai."""
+
+    def path_of(self, image: str) -> Optional[Path]:
+        """Lokasi berkas di disk, atau None jika tidak ada / di luar folder bukti."""
+
+    def archive(self, image: str) -> None:
+        """Singkirkan berkas yang tidak dipakai lagi (dipindah ke _dihapus)."""

@@ -11,12 +11,14 @@ from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
-from flask import Flask, Response, abort, jsonify, request, send_from_directory
+from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
+
 
 from timbul_fishing.core.errors import ReceiptConflictError, ReceiptError
 from timbul_fishing.core.extractor import ReceiptExtractor
 from timbul_fishing.core.formatting import format_excel_row, format_receipt
-from timbul_fishing.core.interfaces import DailyRecordRepository, MonthReportExporter, ReceiptExporter
+from timbul_fishing.core.interfaces import (DailyRecordRepository, MonthReportExporter,
+                                            ReceiptExporter, ReceiptImageStore)
 from timbul_fishing.core.report_calculator import DailyReportCalculator
 from timbul_fishing.core.settlement_service import SettlementService
 from timbul_fishing.domain import check_result as cr
@@ -44,6 +46,7 @@ def create_app(
     repository: DailyRecordRepository,
     service: SettlementService,
     pdf_exporter: MonthReportExporter,
+    images: ReceiptImageStore,
     lan: bool = False,
 ) -> Flask:
     app = Flask(__name__, static_folder="static", static_url_path="/static")
@@ -125,6 +128,49 @@ def create_app(
         return [{"days": [d.isoformat() for d in c.days], "total": c.total,
                  "text": presenter.describe(c)} for c in sug.candidates]
 
+    # ------------------------------------------------------------ gambar bukti
+    def _has_image(rec: Optional[DailyRecord]) -> bool:
+        image = getattr(rec, "image", None)
+        return image is not None and images.path_of(image) is not None
+
+    def _keep_image(token: Optional[str], days) -> Optional[str]:
+        """Pindahkan gambar sementara ke folder bukti dan catat di database.
+        Mengembalikan teks peringatan bila gagal (rekap sendiri tetap tersimpan)."""
+        if not token or not days:
+            return None
+        first = min(days)
+        try:
+            rec = repository.get(first)
+            if rec is not None and _has_image(rec):  # bukti ini sudah punya gambar yang utuh
+                images.discard(token)
+                return None
+            repository.set_receipt_image(first, images.commit(token, first))
+        except (OSError, ValueError) as exc:
+            app.logger.exception("Gagal menyimpan gambar bukti")
+            return f"Gambar bukti gagal disimpan: {exc}"
+        return None
+
+    def _release_image(name: Optional[str]) -> None:
+        """Singkirkan berkas gambar yang tidak dipakai bukti mana pun lagi."""
+        if not name or repository.image_in_use(name):
+            return
+        try:
+            images.archive(name)
+        except OSError:
+            app.logger.exception("Gagal memindahkan gambar bukti yang tidak terpakai")
+
+    @app.get("/api/receipt-image")
+    def receipt_image():
+        d = parse_iso(request.args.get("tanggal", ""))
+        if d is None:
+            return _fail("Tanggal tidak valid.")
+        rec = repository.get(d)
+        image = getattr(rec, "image", None)
+        path = images.path_of(image) if image else None
+        if path is None:
+            abort(404)
+        return send_file(path)
+
     # ------------------------------------------------------------ evaluasi
     @app.post("/api/evaluate")
     def evaluate():
@@ -177,10 +223,12 @@ def create_app(
         ext = os.path.splitext(file.filename or "")[1].lower()
         if ext not in _IMAGE_EXT:
             ext = ".png" if file.mimetype == "image/png" else ".jpg"
+        data = file.read()
         fd, path = tempfile.mkstemp(suffix=ext, prefix="bukti_")
         os.close(fd)
         try:
-            file.save(path)
+            with open(path, "wb") as f:
+                f.write(data)
             receipt = extractor.extract(path)
         except ReceiptError as exc:
             return _fail(str(exc), 422)
@@ -189,7 +237,14 @@ def create_app(
                 os.remove(path)
             except OSError:
                 pass
-        return jsonify({"receipt": receipt_to_dict(receipt)})
+        token, image_error = None, None
+        try:  # gambar ditahan dulu; baru disimpan permanen saat rekap disimpan
+            token = images.stage(data)
+        except (OSError, ValueError) as exc:
+            app.logger.warning("Gambar bukti tidak bisa ditahan: %s", exc)
+            image_error = str(exc)
+        return jsonify({"receipt": receipt_to_dict(receipt), "image_token": token,
+                        "image_error": image_error})
 
     # ------------------------------------------------------------ rekap tersimpan
     @app.get("/api/record")
@@ -204,6 +259,7 @@ def create_app(
             "form": record_to_form(rec),
             "receipt": receipt_to_dict(rec.receipt),
             "cover": [x.isoformat() for x in rec.cover],
+            "has_image": _has_image(rec),
         }})
 
     @app.post("/api/record")
@@ -218,7 +274,8 @@ def create_app(
         except (ValueError, TypeError):
             return _fail("Data bukti tidak valid.")
         d = data.tanggal
-        if (repository.get(d) is not None and body.get("loaded") != d.isoformat()
+        before = repository.get(d)
+        if (before is not None and body.get("loaded") != d.isoformat()
                 and not body.get("overwrite")):
             return _fail(f"Tanggal {d:%d/%m/%Y} sudah punya data tersimpan.", 409,
                          needs_confirm=True)
@@ -233,10 +290,17 @@ def create_app(
                 hari = presenter.hari_text(exc.days) if exc.days else ""
                 warning = (f"{exc} {hari}. Rekap tetap tersimpan, tetapi tanpa bukti ini.").strip()
                 receipt, cover = None, ()
+
+        if receipt is not None:
+            image_warning = _keep_image(body.get("image_token"), cover)
+            warning = " ".join(x for x in (warning, image_warning) if x) or None
+        if before is not None:  # bukti lama yang tergantikan: gambarnya ikut disingkirkan
+            _release_image(before.image)
         return jsonify({
             "saved": d.isoformat(),
             "receipt": receipt_to_dict(receipt),
             "cover": [x.isoformat() for x in cover],
+            "has_image": _has_image(repository.get(d)),
             "warning": warning,
         })
 
@@ -245,7 +309,10 @@ def create_app(
         d = parse_iso(request.args.get("tanggal", ""))
         if d is None:
             return _fail("Tanggal tidak valid.")
+        before = repository.get(d)
         repository.delete(d)
+        if before is not None:
+            _release_image(before.image)
         return jsonify({"deleted": d.isoformat()})
 
     @app.post("/api/apply")
@@ -275,6 +342,7 @@ def create_app(
             "includes_form": includes_form,
             "cover": [d.isoformat() for d in days] if includes_form else [],
             "text": presenter.hari_text(days),
+            "warning": _keep_image(body.get("image_token"), days),
         })
 
     # ------------------------------------------------------------ riwayat
@@ -301,6 +369,8 @@ def create_app(
                 "hari": f"{presenter.HARI_PENDEK[d.weekday()]} {d.day:02d}",
                 "masuk": titik(rep.total_pemasukan), "keluar": titik(rep.total_pengeluaran),
                 "sisa": titik(rep.sisa), "ket": ket, "tone": tone,
+                "has_image": _has_image(rec),
+                "has_receipt": rec.receipt is not None,
             })
             masuk += rep.total_pemasukan
             keluar += rep.total_pengeluaran
@@ -311,8 +381,6 @@ def create_app(
             "title": f"{presenter.BULAN[mon - 1]} {year}",
             "rows": out,
             "summary": summary,
-            "excel": "\n".join(format_excel_row(rep, checked=res.status == cr.CHECKED)
-                               for _, rep, res in rows),
         })
 
     @app.get("/api/month.pdf")

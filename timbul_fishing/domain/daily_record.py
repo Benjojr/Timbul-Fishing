@@ -16,3 +16,6 @@ class DailyRecord:
     # Semua tanggal yang dibayar oleh bukti yang sama (termasuk hari ini), urut naik.
     # Kosong jika belum ada bukti; berisi 1 tanggal untuk transfer harian biasa.
     cover: Tuple[date, ...] = ()
+    # Nama berkas gambar bukti (relatif terhadap folder bukti). None = gambar tidak disimpan
+    # (mis. rekap lama sebelum fitur simpan gambar); rekap dan pengecekan tetap berlaku.
+    image: Optional[str] = None

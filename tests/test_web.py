@@ -9,6 +9,7 @@ from timbul_fishing.core.transfer_checker import TransferChecker
 from timbul_fishing.infra.sqlite_repository import SqliteDailyRecordRepository
 from timbul_fishing.infra.txt_exporter import TxtExporter
 from timbul_fishing.web.app import HEADER_NAME, HEADER_VALUE, create_app
+from timbul_fishing.infra.receipt_image_store import ReceiptImageStore
 
 
 class WebTest(unittest.TestCase):
@@ -17,8 +18,10 @@ class WebTest(unittest.TestCase):
         calc = DailyReportCalculator()
         repo = SqliteDailyRecordRepository(Path(self.tmp.name) / "t.tfdata")
         service = SettlementService(repo, calc, TransferChecker())
+        self.images = ReceiptImageStore(Path(self.tmp.name) / "bukti")
         app = create_app(extractor=None, exporter=TxtExporter(), calculator=calc,
-                         repository=repo, service=service, pdf_exporter=None)
+                         repository=repo, service=service, pdf_exporter=None,
+                         images=self.images)
         self.client = app.test_client()
 
     def tearDown(self):

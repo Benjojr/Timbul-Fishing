@@ -62,3 +62,13 @@ def database_path(folder: Optional[Path] = None) -> Path:
     if not new.exists() and old.exists():
         shutil.copy2(old, new)
     return new
+
+def receipts_dir() -> Path:
+    """
+    Folder gambar bukti transfer: %APPDATA%\\TimbulFishing\\bukti (di samping database).
+    Bisa dipindah dengan mengisi variabel lingkungan TIMBULFISHING_BUKTI_DIR.
+    """
+    override = os.environ.get("TIMBULFISHING_BUKTI_DIR")
+    folder = Path(override) if override else data_dir() / "bukti"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder

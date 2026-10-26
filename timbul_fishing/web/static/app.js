@@ -6,7 +6,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const S = {
   receipt: null, cover: [], loaded: null, dirty: false, busy: false,
   candidates: [], check: null, excelRow: null, receiptText: null, hasReport: false,
-  evalSeq: 0, evalTimer: null, hist: { y: 0, m: 0 }, monthExcel: "", monthRows: 0, previewUrl: null,
+  evalSeq: 0, evalTimer: null, hist: { y: 0, m: 0 }, monthRows: 0, previewUrl: null, imageToken: null,
 };
 const HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
 const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
@@ -22,6 +22,31 @@ const fmtDate = t => { const [y, m, d] = t.split("-"); return `${d}/${m}/${y}`; 
 const titik = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 const rupiah = n => (n == null ? "-" : "Rp " + titik(n));
 const setStatus = msg => { $("#status").textContent = msg; };
+
+// Dialog pesan (pengganti alert/confirm bawaan browser). Pemanggilan beruntun diantre.
+let dialogChain = Promise.resolve();
+function ask({ title, message, ok = "OK", cancel = null, danger = false }) {
+  const run = () => new Promise(resolve => {
+    const dlg = $("#msgDlg"), okBtn = $("#msgOk"), noBtn = $("#msgCancel");
+    $("#msgTitle").textContent = title;
+    $("#msgText").textContent = message;
+    okBtn.textContent = ok; okBtn.classList.toggle("danger", danger);
+    noBtn.hidden = !cancel; if (cancel) noBtn.textContent = cancel;
+    dlg.returnValue = "";
+    dlg.addEventListener("close", () => resolve(dlg.returnValue === "ok"), { once: true });
+    dlg.showModal();
+    (danger && cancel ? noBtn : okBtn).focus();   // aksi berbahaya: fokus awal di "Batal"
+  });
+  const result = dialogChain.then(run);
+  dialogChain = result.catch(() => {});
+  return result;
+}
+const uiAlert = (message, title = "Pemberitahuan") => ask({ title, message });
+const uiConfirm = (message, { title = "Konfirmasi", ok = "Lanjutkan", cancel = "Batal", danger = false } = {}) =>
+  ask({ title, message, ok, cancel, danger });
+const confirmDiscard = (message = "Isian yang belum disimpan akan hilang.") =>
+  uiConfirm(message, { title: "Isian belum disimpan", ok: "Buang & lanjut", danger: true });
+
 
 // Bilah progres atas: muncul hanya bila permintaan > 300 ms (supaya tidak berkedip pada yang cepat).
 let inflight = 0, busyTimer = null;
@@ -226,8 +251,17 @@ function showPreview(file) {
   img.src = S.previewUrl; img.hidden = false; $("#dropText").hidden = true;
 }
 
+function showSavedImage(t) {  // gambar bukti yang tersimpan di folder bukti
+  clearPreview();
+  const img = $("#preview");
+  img.onerror = () => clearPreview("Gambar bukti tidak ditemukan di folder bukti");
+  img.src = `/api/receipt-image?tanggal=${encodeURIComponent(t)}`;
+  img.hidden = false; $("#dropText").hidden = true;
+}
+
 function clearPreview(msg) {
   if (S.previewUrl) { URL.revokeObjectURL(S.previewUrl); S.previewUrl = null; }
+  $("#preview").onerror = null;
   $("#preview").hidden = true; $("#preview").removeAttribute("src");
   const t = $("#dropText"); t.hidden = false; t.textContent = msg || PLACEHOLDER;
 }
@@ -237,19 +271,19 @@ function setBusy(b) { S.busy = b; $("#spin").hidden = !b; updateButtons(); }
 async function processImage(file) {
   if (S.busy) return;
   if (!file || !file.type.startsWith("image/")) { setStatus("Berkas itu bukan gambar"); return; }
-  Object.assign(S, { receipt: null, cover: [], candidates: [] });
+  Object.assign(S, { receipt: null, cover: [], candidates: [], imageToken: null });
   showPreview(file); renderReceipt(); evaluate(true);
   setBusy(true); setStatus(`Memproses ${file.name || "gambar dari clipboard"}...`);
   const fd = new FormData();
   fd.append("image", file, file.name || "bukti.png");
   let res;
   try { res = await api("/api/ocr", { method: "POST", body: fd, bar: false }); }
-  catch (e) { setBusy(false); setStatus("Gagal memproses gambar"); alert(e.message); return; }
+  catch (e) { setBusy(false); setStatus("Gagal memproses gambar"); await uiAlert(e.message, "Gagal memproses gambar"); return; }
   setBusy(false);
-  S.receipt = res.receipt; S.cover = []; S.dirty = true;
+  S.receipt = res.receipt; S.cover = []; S.dirty = true; S.imageToken = res.image_token;
   renderReceipt();
   const r = await evaluate();
-  if (r && !r.report) setStatus("Bukti terbaca. Perbaiki isian rekap untuk pencocokan.");
+  if (res.image_error) await uiAlert(`Bukti terbaca, tetapi gambarnya tidak bisa disimpan.\n${res.image_error}`, "Gambar tidak akan tersimpan");
   else if (r && r.check.status === "gabungan") openCombine();
 }
 
@@ -269,8 +303,9 @@ async function fetchRecord(t) { return (await api("/api/record?tanggal=" + encod
 
 function loadRecord(rec) {
   writeForm(rec.form);
-  Object.assign(S, { receipt: rec.receipt, cover: rec.cover, loaded: rec.form.tanggal, dirty: false, candidates: [] });
-  clearPreview(rec.receipt ? "Gambar bukti tidak disimpan" : null);
+  Object.assign(S, { receipt: rec.receipt, cover: rec.cover, loaded: rec.form.tanggal, dirty: false, candidates: [], imageToken: null });
+  if (rec.has_image) showSavedImage(rec.form.tanggal);
+  else clearPreview(rec.receipt ? "Gambar bukti tidak tersimpan (data bukti & pengecekan tetap berlaku)" : null);
   renderReceipt(); updateState();
   evaluate(true);
   setStatus(`Data ${fmtDate(rec.form.tanggal)} dimuat`);
@@ -278,13 +313,13 @@ function loadRecord(rec) {
 
 function resetForm(tanggal) {
   writeForm(emptyForm(tanggal));
-  Object.assign(S, { receipt: null, cover: [], candidates: [], loaded: null, dirty: false });
+  Object.assign(S, { receipt: null, cover: [], candidates: [], loaded: null, dirty: false, imageToken: null });
   clearPreview(); renderReceipt(); evaluate(true);
   setStatus("Form dikosongkan");
 }
 
 async function navigateTo(t) {  // tombol ‹ › / Hari ini: muat data tanggal itu, atau form kosong
-  if (S.dirty && !confirm("Isian yang belum disimpan akan hilang. Lanjutkan?")) return;
+  if (S.dirty && !(await confirmDiscard())) return;
   const rec = await fetchRecord(t);
   if (rec) loadRecord(rec); else resetForm(t);
 }
@@ -294,7 +329,9 @@ async function onDateTyped() {  // tanggal diubah langsung: isian dibiarkan, kec
   if (!t || t === S.loaded) { updateState(); return; }
   const rec = await fetchRecord(t);
   if (!rec) { S.dirty = true; updateState(); scheduleEval(0); return; }
-  if (S.dirty && !confirm(`Tanggal ${fmtDate(t)} sudah punya data tersimpan.\n\nMemuatnya akan mengganti isian yang sekarang (belum disimpan). Lanjutkan?`)) {
+  if (S.dirty && !(await uiConfirm(
+        `Tanggal ${fmtDate(t)} sudah punya data tersimpan.\n\nMemuatnya akan mengganti isian yang sekarang (belum disimpan).`,
+        { title: "Muat data tersimpan?", ok: "Muat data" }))) {
     updateState(); return;
   }
   loadRecord(rec);
@@ -305,20 +342,22 @@ async function save(overwrite = false) {
   let r;
   try {
     r = await api("/api/record", { method: "POST",
-      json: { form: readForm(), receipt: S.receipt, cover: S.cover, loaded: S.loaded, overwrite } });
+      json: { form: readForm(), receipt: S.receipt, cover: S.cover, loaded: S.loaded, overwrite,
+              image_token: S.imageToken } });
   } catch (e) {
     if (e.status === 409 && e.data.needs_confirm) {
-      if (confirm(`${e.message}\nTimpa dengan isian sekarang?`)) return save(true);
+      if (await uiConfirm(`${e.message}\nTimpa dengan isian sekarang?`,
+                          { title: "Tanggal sudah ada", ok: "Timpa", danger: true })) return save(true);
       return;
     }
-    alert(e.message); return;
+    await uiAlert(e.message, "Gagal menyimpan"); return;
   }
-  Object.assign(S, { loaded: r.saved, dirty: false, receipt: r.receipt, cover: r.cover, candidates: [] });
-  if (r.warning) alert(r.warning);
+  Object.assign(S, { loaded: r.saved, dirty: false, receipt: r.receipt, cover: r.cover, candidates: [], imageToken: null });
   renderReceipt();
   await evaluate(true);
   setStatus(`Rekap ${fmtDate(r.saved)} tersimpan`);
   if (currentTab() === "riwayat") refreshHistory();
+  if (r.warning) await uiAlert(r.warning, "Perhatian");
 }
 
 // ---------------------------------------------------------------- gabungan
@@ -336,8 +375,9 @@ function openCombine() {
 
 async function applyDays(days) {
   let r;
-  try { r = await api("/api/apply", { method: "POST", json: { form: readForm(), receipt: S.receipt, days } }); }
-  catch (e) { alert(e.message); return; }
+  try { r = await api("/api/apply", { method: "POST", json: { form: readForm(), receipt: S.receipt, days, image_token: S.imageToken } }); }
+  catch (e) { await uiAlert(e.message, "Gagal menerapkan bukti"); return; }
+  S.imageToken = null;
   if (r.includes_form) {
     Object.assign(S, { cover: r.cover, loaded: $("#tanggal").value, dirty: false });
   } else {  // bukti dipakai hari lain; form ini tidak ikut
@@ -347,7 +387,7 @@ async function applyDays(days) {
   S.candidates = [];
   await evaluate(true);
   setStatus(`Bukti diterapkan untuk ${r.text}`);
-  if (currentTab() === "riwayat") refreshHistory();
+  if (r.warning) await uiAlert(r.warning, "Perhatian");
 }
 
 // ---------------------------------------------------------------- riwayat
@@ -368,16 +408,17 @@ async function refreshHistory() {
   const { y, m } = S.hist;
   $("#histTitle").textContent = `${BULAN[m - 1]} ${y}`;
   const r = await api(`/api/month?year=${y}&month=${m}`);
-  S.monthExcel = r.excel; S.monthRows = r.rows.length;
+  S.monthRows = r.rows.length;
   $("#histTable tbody").replaceChildren(...r.rows.map(row => {
     const tr = document.createElement("tr");
     tr.dataset.tanggal = row.tanggal;
-    [row.hari, row.masuk, row.keluar, row.sisa, row.ket, "✕"].forEach((v, i) => {
+    [row.hari, row.masuk, row.keluar, row.sisa, row.ket, row.has_image ? "🧾" : (row.has_receipt ? "–" : ""), "✕"].forEach((v, i) => {
       const td = document.createElement("td");
       td.textContent = v;
       if (i >= 1 && i <= 3) td.className = "r";
       if (i === 4 && row.tone) td.className = "tone-" + row.tone;
-      if (i === 5) { td.className = "x"; td.title = "Hapus rekap ini"; }
+      if (i === 5 && v) { td.className = "img"; td.title = "Lihat bukti transfer"; }
+      if (i === 6) { td.className = "x"; td.title = "Hapus rekap ini"; }
       tr.appendChild(td);
     });
     return tr;
@@ -391,14 +432,14 @@ async function refreshHistory() {
 }
 
 async function openRecord(t) {
-  if (S.dirty && t !== S.loaded && !confirm("Isian yang sekarang belum disimpan dan akan diganti. Lanjutkan?")) return;
+  if (S.dirty && t !== S.loaded && !(await confirmDiscard("Isian yang sekarang belum disimpan dan akan diganti."))) return;
   const rec = await fetchRecord(t);
   if (!rec) return;
   loadRecord(rec); showTab("rekap");
 }
 
 async function deleteRecord(t) {
-  if (!confirm(`Hapus rekap tanggal ${fmtDate(t)}?`)) return;
+  if (!(await uiConfirm(`Rekap tanggal ${fmtDate(t)} akan dihapus.`, { title: "Hapus rekap?", ok: "Hapus", danger: true }))) return;
   await api("/api/record?tanggal=" + encodeURIComponent(t), { method: "DELETE" });
   if (S.loaded === t) {
     S.loaded = null; S.cover = S.cover.filter(x => x !== t);
@@ -406,6 +447,14 @@ async function deleteRecord(t) {
   }
   await refreshHistory();
   setStatus(`Rekap ${fmtDate(t)} dihapus`);
+}
+
+function viewReceiptImage(t) {
+  const dlg = $("#imgDlg"), img = $("#imgView");
+  $("#imgTitle").textContent = `Bukti transfer · ${fmtDate(t)}`;
+  img.onerror = () => { dlg.close(); uiAlert("Berkas gambar tidak ditemukan di folder bukti.", "Gambar hilang"); };
+  img.src = `/api/receipt-image?tanggal=${encodeURIComponent(t)}`;
+  dlg.showModal();
 }
 
 function shiftMonth(delta) {
@@ -448,8 +497,8 @@ function wire() {
 
   // aksi
   on($("#saveBtn"), "click", () => save());
-  on($("#newBtn"), "click", () => {
-    if (S.dirty && !confirm("Isian yang belum disimpan akan hilang. Lanjutkan?")) return;
+  on($("#newBtn"), "click", async () => {
+    if (S.dirty && !(await confirmDiscard())) return;
     resetForm(todayISO());
   });
   on($("#excelBtn"), "click", async () => {
@@ -498,16 +547,13 @@ function wire() {
     const tr = e.target.closest("tr");
     if (!tr || !tr.dataset.tanggal) return;
     if (e.target.classList.contains("x")) await deleteRecord(tr.dataset.tanggal);
+    else if (e.target.classList.contains("img")) viewReceiptImage(tr.dataset.tanggal);
     else await openRecord(tr.dataset.tanggal);
   });
-  on($("#monthExcelBtn"), "click", async () => {
-    if (!S.monthRows) { setStatus("Tidak ada data untuk disalin"); return; }
-    const ok = await copyText(S.monthExcel);
-    setStatus(ok ? `${S.monthRows} baris (${BULAN[S.hist.m - 1]}) disalin ke clipboard` : "Gagal menyalin ke clipboard");
-  });
+  $("#imgDlg").addEventListener("close", () => { $("#imgView").onerror = null; $("#imgView").removeAttribute("src"); });
   $("#pdfLink").addEventListener("click", e => {
-    if (!S.monthRows) { e.preventDefault(); setStatus("Tidak ada data untuk diekspor"); return; }
-    setStatus("Membuat PDF…");
+    if (!S.monthRows) { e.preventDefault(); setStatus("Tidak ada data untuk dibuat laporannya"); return; }
+    setStatus("Membuat laporan…");
   });
   // pintasan & pengaman
   document.addEventListener("keydown", e => {

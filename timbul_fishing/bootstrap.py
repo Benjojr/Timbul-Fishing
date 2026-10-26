@@ -1,7 +1,8 @@
 """Composition root: satu-satunya tempat yang tahu implementasi konkret."""
 from __future__ import annotations
 
-from timbul_fishing.config import APP_NAME, database_path, locate_tesseract
+from timbul_fishing.config import APP_NAME, database_path, locate_tesseract, receipts_dir
+from timbul_fishing.infra.receipt_image_store import ReceiptImageStore
 
 
 def build_app(lan: bool = False):
@@ -31,4 +32,5 @@ def build_app(lan: bool = False):
     calculator = DailyReportCalculator()
     service = SettlementService(repository, calculator, TransferChecker())
     return create_app(extractor, TxtExporter(), calculator, repository, service,
-                      PdfMonthExporter(usaha=APP_NAME), lan=lan)
+                      PdfMonthExporter(usaha=APP_NAME), ReceiptImageStore(receipts_dir()),
+                      lan=lan)

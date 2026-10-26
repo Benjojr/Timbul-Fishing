@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BuktiTF · Rekap &amp; Verifikasi Transfer</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div id="busybar" aria-hidden="true"></div>
+<header class="top">
+  <strong>BuktiTF</strong><span class="sep"></span><span class="muted">Rekap harian &amp; verifikasi transfer</span>
+  <button id="themeBtn" class="btn soft small push" title="Ganti tema">Tema</button>
+</header>
+
+<main class="layout">
+  <!-- ============ Kiri: bukti transfer ============ -->
+  <section class="card" id="left">
+    <h2>Bukti Transfer</h2>
+    <div id="drop" class="drop" tabindex="0">
+      <img id="preview" alt="" hidden>
+      <div id="dropText" class="muted">Belum ada gambar<br><br>Tempel (Ctrl+V), seret file ke sini,<br>atau pilih file</div>
+      <div id="spin" class="spin" hidden><i></i> Membaca bukti…</div>
+    </div>
+    <div class="row">
+      <button class="btn primary grow" id="pickBtn">Pilih File</button>
+      <button class="btn soft grow" id="pasteBtn">Tempel (Ctrl+V)</button>
+    </div>
+    <input type="file" id="file" accept="image/*" hidden>
+
+    <div class="info" id="receiptInfo">
+      <div><span class="muted">Status</span><b id="rStatus" class="pill idle">-</b></div>
+      <div><span class="muted">Waktu</span><b id="rWaktu">-</b></div>
+      <div><span class="muted">Rekening tujuan</span><b id="rKe">-</b></div>
+      <div><span class="muted">Nama penerima</span><b id="rNama">-</b></div>
+      <div><span class="muted">Nominal</span><b id="rNominal" class="big">-</b></div>
+    </div>
+    <div class="row">
+      <button class="btn soft grow" id="copyReceiptBtn" disabled>Salin Bukti</button>
+      <button class="btn soft grow" id="txtBtn" disabled>Simpan .txt</button>
+    </div>
+  </section>
+
+  <!-- ============ Kanan: rekap & riwayat ============ -->
+  <section class="card" id="right">
+    <nav class="tabs">
+      <button data-tab="rekap" class="active">Rekap Harian</button>
+      <button data-tab="riwayat">Riwayat</button>
+    </nav>
+
+    <div id="tab-rekap" class="tab">
+      <div class="scroll">
+        <div class="sec"><span>TANGGAL</span><i></i><b id="stateLbl" class="pill idle"></b></div>
+        <div class="row">
+          <button class="btn soft small" id="prevDay" title="Hari sebelumnya">‹</button>
+          <input type="date" id="tanggal" data-key="tanggal">
+          <button class="btn soft small" id="nextDay" title="Hari berikutnya">›</button>
+          <button class="btn soft small" id="todayBtn">Hari ini</button>
+        </div>
+
+        <div class="sec"><span>SESI MEMANCING</span><i></i></div>
+        <div class="grid4 head"><span>Sesi</span><span>Peserta</span><span>Harga ticket</span><span>Subtotal</span></div>
+        <div class="grid4"><b>Sesi 1</b><input inputmode="numeric" data-key="peserta0" data-f="peserta" data-i="0"><input inputmode="numeric" data-key="harga0" data-f="harga" data-i="0" class="money"><span class="sub">-</span></div>
+        <div class="grid4"><b>Sesi 2</b><input inputmode="numeric" data-key="peserta1" data-f="peserta" data-i="1"><input inputmode="numeric" data-key="harga1" data-f="harga" data-i="1" class="money"><span class="sub">-</span></div>
+        <div class="grid4"><b>Sesi 3</b><input inputmode="numeric" data-key="peserta2" data-f="peserta" data-i="2"><input inputmode="numeric" data-key="harga2" data-f="harga" data-i="2" class="money"><span class="sub">-</span></div>
+
+        <div class="sec"><span>HADIAH</span><i></i></div>
+        <input inputmode="numeric" id="hadiah" data-key="hadiah" class="money full">
+
+        <div class="sec"><span>PENGELUARAN</span><i></i><em id="expTotal" class="muted"></em>
+          <button class="btn soft small" id="addExp">+ Tambah</button></div>
+        <div id="expRows"></div>
+
+        <div class="sec"><span>CATATAN</span><i></i></div>
+        <input id="catatan" class="full left" maxlength="200">
+      </div>
+
+      <div class="summary">
+        <div class="stats">
+          <div><span class="muted">Pemasukan</span><b id="tMasuk">-</b></div>
+          <div><span class="muted">Pengeluaran</span><b id="tKeluar">-</b></div>
+          <div><span class="muted">Sisa (ditransfer)</span><b id="tSisa" class="big">-</b></div>
+        </div>
+        <div class="check"><b id="cBadge" class="pill idle">-</b><span id="cDetail" class="muted"></span></div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="saveBtn" title="Ctrl+S">Simpan</button>
+        <button class="btn soft" id="excelBtn" disabled>Salin ke Excel</button>
+        <button class="btn soft" id="combineBtn" disabled>Gabungan…</button>
+        <button class="btn soft push" id="newBtn">Baru</button>
+      </div>
+    </div>
+
+    <div id="tab-riwayat" class="tab" hidden>
+      <div class="monthnav">
+        <button class="btn soft small" id="prevMonth">‹</button>
+        <b id="histTitle"></b>
+        <button class="btn soft small" id="nextMonth">›</button>
+      </div>
+      <div class="scroll tablewrap">
+        <table id="histTable">
+          <thead><tr><th>Tgl</th><th class="r">Pemasukan</th><th class="r">Pengeluaran</th><th class="r">Sisa</th><th>Ket</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p id="histEmpty" class="muted" hidden>Belum ada data tersimpan di bulan ini.</p>
+      </div>
+      <div class="summary"><span id="histTotal" class="muted"></span></div>
+      <div class="actions">
+        <button class="btn primary" id="monthExcelBtn">Salin Bulan ke Excel</button>
+        <a class="btn soft" id="pdfLink" href="#">Ekspor Bulan ke PDF</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="status" id="status">Siap</footer>
+
+<dialog id="combineDlg">
+  <form method="dialog">
+    <h3 id="combineTitle"></h3>
+    <p class="muted">Pilih hari-hari yang dibayar oleh bukti ini.</p>
+    <div id="combineList"></div>
+    <div class="row end">
+      <button type="button" class="btn soft" id="combineCancel">Batal</button>
+      <button class="btn primary" value="ok">Terapkan</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
